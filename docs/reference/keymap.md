@@ -7,7 +7,7 @@ zero keymap --init
 zero keymap --check
 ```
 
-全部动作都在生成的配置里，生成后即可看到完整列表（含本期新增的 `bind_lyrics`）。
+全部动作都在生成的配置里，生成后即可看到完整列表（含 `bind_lyrics`、`comments`、`related`、`profiles` 和 `comment_author`）。
 
 ## 示例
 
@@ -19,6 +19,10 @@ previous   = ["["]
 help_popup  = ["H"]
 local_search = ["/"]
 search = ["?"]
+comments = ["i"]
+related = ["I"]
+profiles = ["u"]
+comment_author = ["O"]
 login       = ["L"]
 login_image = ["o"]
 download          = ["w"]
@@ -50,3 +54,5 @@ sync              = ["ctrl+s"]
 - v0.6 新增动作 `sync`（默认 `ctrl+s`）；`1–9` 仍然只覆盖前九个页面，同步页用 `Tab` 或 `ctrl+s` 进入。
 
 设计取舍见 [ADR 0012](../adr/0012-configurable-keymap.md)。默认键位全表见[按键速查](keys.md)。
+
+`profiles` 默认为小写 `u`：始终打开当前播放歌曲的作者；多位作者先选择，只有一位时直接进入主页。没有当前曲目时显示提示。`comment_author` 默认为大写 `O`，在评论区打开顶部评论的作者主页；两个动作可分别改键或禁用。

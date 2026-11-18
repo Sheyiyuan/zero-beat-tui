@@ -40,6 +40,12 @@ func (m *Model) View() tea.View {
 	if m.clip != nil {
 		frame = overlayBox(frame, m.clipLines(), m.width, m.height)
 	}
+	if m.browse != nil {
+		frame = overlayBox(frame, m.browseLines(), m.width, m.height)
+	}
+	if m.content != nil {
+		frame = overlayBox(frame, m.contentLines(), m.width, m.height)
+	}
 	if m.menu != nil {
 		frame = m.overlayMenu(frame)
 	}

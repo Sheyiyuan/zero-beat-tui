@@ -6,7 +6,7 @@ import (
 
 	"github.com/sheyiyuan/zero-beat-core/store"
 	"github.com/sheyiyuan/zero-beat-tui/internal/audio"
-	"github.com/sheyiyuan/zero-beat-tui/internal/sysmedia"
+	"github.com/sheyiyuan/zero-beat-core/sysmedia"
 )
 
 type fakeSysmedia struct {

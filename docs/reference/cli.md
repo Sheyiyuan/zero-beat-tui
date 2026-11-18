@@ -7,7 +7,7 @@ zero                        # 终端界面（等价 zero tui）
 zero login bilibili         # 只扫码登录 B 站，保存 cookie
 zero login netease          # 只扫码登录网易云，保存 cookie
 zero play BV1GJ411x7h7      # headless 播放（B 站/网易云），验证音频链路
-zero demo [view]            # 打印一帧示例界面（library/search/queue/lyrics/lyricbind/help/login/clip/picker/downloads/menu/about/selection/sync/conflicts）
+zero demo [view]            # 打印一帧示例界面（library/search/queue/lyrics/lyricbind/help/login/clip/picker/downloads/menu/about/selection/sync/conflicts/comments/related/profile/radio）
 zero frame [选项]           # 读取运行中实例的当前帧（--ansi / --json / --delay / --stable）
 zero +<按键> [--force]      # 向运行中实例注入按键（键名同 keymap.toml）
 zero +type <文本>           # 向当前输入态灌入文本
@@ -29,10 +29,13 @@ zero keymap --check         # 校验快捷键配置
 zero sync init --remote <url>   # 初始化/加入同步仓库（zero sync 查看全部子命令）
 zero sync status|pull|push|conflicts|resolve|key rotate
 zero sync --backend auto|cli|gogit pull # 本次调用覆盖同步后端
+zero sync accounts on|off   # 开启/关闭本机登录态同步，默认关闭
 zero --version              # 打印版本
 ```
 
 `zero` 不带子命令时可用 `--help` / `-h` 查看用法。
+
+v0.8.0 新增的评论、推荐、主页、电台示例与登录态同步开关目前属于未发布功能，见 [0.8.0 更新说明](../release-notes-v0.8.0.md)。`zero play program:2066770638` 或网易云节目链接可播放播客节目。
 
 ## 本地库与歌词
 

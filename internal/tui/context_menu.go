@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/sheyiyuan/zero-beat-core/source"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -75,6 +76,7 @@ func (m *Model) openSongMenu(zone hitZone, x, y int) (tea.Model, tea.Cmd) {
 		{label: "加入歌单", hint: m.firstKey(keymap.AddPlaylist), act: actAddPlaylist},
 		{label: "下载", hint: m.firstKey(keymap.DownloadSelected), act: actDownload},
 	}
+	items = append(items, m.contentMenuItems(song)...)
 	switch zone.target {
 	case hitQueueSong:
 		items = append(items, menuItem{label: "从队列移除", hint: m.firstKey(keymap.Remove), act: actRemove})
@@ -232,7 +234,27 @@ func (m *Model) openLyricsMenu(line int, x, y int) {
 	if m.lyricOffsetMS != 0 {
 		items = append(items, menuItem{label: "歌词偏移归零", hint: m.firstKey(keymap.OffsetReset), act: actOffsetReset})
 	}
+	if m.current != nil {
+		items = append(items, m.contentMenuItems(*m.current)...)
+	}
 	menu := newMenu(menuLyrics, "歌词", items, x, y, m.width)
+	if m.current != nil {
+		menu.song = *m.current
+	}
 	menu.lyricLine = line
 	m.menu = menu
+}
+
+func (m *Model) contentMenuItems(song store.Song) []menuItem {
+	var items []menuItem
+	if m.supportsContent(song, contentComments) {
+		items = append(items, menuItem{label: "评论区", hint: m.firstKey(keymap.Comments), act: actComments})
+	}
+	if m.supportsContent(song, contentRelated) {
+		items = append(items, menuItem{label: "相关推荐", hint: m.firstKey(keymap.Related), act: actRelated})
+	}
+	if m.browseSource(source.ID(song.Source)) != nil {
+		items = append(items, menuItem{label: "此曲的歌手 / 用户主页", act: actProfiles})
+	}
+	return items
 }

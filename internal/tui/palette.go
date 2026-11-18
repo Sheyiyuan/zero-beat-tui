@@ -20,21 +20,24 @@ const (
 type paletteAction string
 
 const (
-	palBlank         paletteAction = "blank"
-	palLocalOnly     paletteAction = "local-only"
-	palAddFolder     paletteAction = "add-folder"
-	palRescanFolder  paletteAction = "rescan-folder"
-	palSetFolderRoot paletteAction = "set-folder-root"
-	palImport        paletteAction = "import"
-	palMix           paletteAction = "mix"
-	palNewMix        paletteAction = "new-mix"
-	palEditMix       paletteAction = "edit-mix"
-	palUnlock        paletteAction = "unlock"
-	palAddCurrent    paletteAction = "add-current"
-	palLocalFirst    paletteAction = "local-first"
-	palAutoGain      paletteAction = "auto-gain"
-	palAbout         paletteAction = "about"
-	palSync          paletteAction = "sync"
+	palBlank            paletteAction = "blank"
+	palLocalOnly        paletteAction = "local-only"
+	palAddFolder        paletteAction = "add-folder"
+	palRescanFolder     paletteAction = "rescan-folder"
+	palSetFolderRoot    paletteAction = "set-folder-root"
+	palImport           paletteAction = "import"
+	palMix              paletteAction = "mix"
+	palNewMix           paletteAction = "new-mix"
+	palEditMix          paletteAction = "edit-mix"
+	palUnlock           paletteAction = "unlock"
+	palAddCurrent       paletteAction = "add-current"
+	palLocalFirst       paletteAction = "local-first"
+	palAutoGain         paletteAction = "auto-gain"
+	palAbout            paletteAction = "about"
+	palSync             paletteAction = "sync"
+	palBrowseLink       paletteAction = "browse-link"
+	palProfiles         paletteAction = "profiles"
+	palSelectedProfiles paletteAction = "selected-profiles"
 )
 
 type paletteItem struct {
@@ -78,9 +81,20 @@ func (m *Model) paletteItems() []paletteItem {
 		{palAutoGain, autoLabel, autoDesc},
 		{palAbout, "关于 zero-beat", "版本、许可证与项目地址"},
 		{palSync, "跨设备同步", "git 仓库、加密登录态与冲突处理"},
+		{palProfiles, "当前播放的作者主页", "多位作者先选择，只有一位直接进入"},
+		{palSelectedProfiles, "选中歌曲的歌手 / 用户主页", "浏览选中歌曲的关联主页"},
+		{palBrowseLink, "打开主页 / 电台链接", "粘贴网易云歌手、用户、电台或 B 站空间链接"},
 	}
 	if m.sources != nil {
 		for _, src := range m.sources.All() {
+			if b := m.browseSource(src.ID()); b != nil {
+				for _, root := range b.BrowseRoots() {
+					items = append(items, paletteItem{paletteAction("browse-root:" + string(root.Ref.Source) + ":" + string(root.Ref.Kind)), root.Title, "浏览与播放节目"})
+				}
+				if u := src.User(); u.ID != "" && u.LoggedIn {
+					items = append(items, paletteItem{paletteAction("browse-user:" + string(src.ID())), src.Name() + " · 我的主页", "公开内容"})
+				}
+			}
 			if !src.Caps().Has(source.CapRemotePlaylists) {
 				continue
 			}
@@ -192,11 +206,18 @@ func (m *Model) handlePaletteKey(key tea.Key) (tea.Model, tea.Cmd) {
 
 func (m *Model) runPaletteAction(action paletteAction) tea.Cmd {
 	m.palette = nil
+	if cmd, ok := m.browsePaletteAction(action); ok {
+		return cmd
+	}
 	if strings.HasPrefix(string(action), string(palImport)+":") {
 		return m.openFolders(source.ID(strings.TrimPrefix(string(action), string(palImport)+":")))
 	}
 	switch action {
-	case palBlank, palLocalOnly, palAddFolder, palSetFolderRoot:
+	case palProfiles:
+		return m.openCurrentProfiles()
+	case palSelectedProfiles:
+		return m.openSelectedProfiles()
+	case palBrowseLink, palBlank, palLocalOnly, palAddFolder, palSetFolderRoot:
 		m.palette = &paletteState{mode: paletteName, action: action}
 		return nil
 	case palMix:
@@ -243,7 +264,7 @@ func (m *Model) runPaletteAction(action paletteAction) tea.Cmd {
 }
 
 func (m *Model) commitPaletteName() tea.Cmd {
-	if m.store == nil || m.palette == nil {
+	if m.palette == nil || m.store == nil && m.palette.action != palBrowseLink {
 		m.palette = nil
 		return nil
 	}
@@ -251,7 +272,9 @@ func (m *Model) commitPaletteName() tea.Cmd {
 	action := m.palette.action
 	m.palette = nil
 	if title == "" {
-		if action == palAddFolder {
+		if action == palBrowseLink {
+			m.setNotice("主页 / 电台链接不能为空", true)
+		} else if action == palAddFolder {
 			m.setNotice("路径不能为空", true)
 		} else {
 			m.setNotice("歌单名不能为空", true)
@@ -259,6 +282,13 @@ func (m *Model) commitPaletteName() tea.Cmd {
 		return nil
 	}
 	switch action {
+	case palBrowseLink:
+		ref, err := source.ParseBrowseTarget(title)
+		if err != nil {
+			m.setError(err)
+			return nil
+		}
+		return m.openBrowse(ref)
 	case palAddFolder:
 		m.pendingPlaylistID = ""
 		return m.addFolderCmd(title)
@@ -329,6 +359,8 @@ func (m *Model) paletteLines() []string {
 	if p.mode == paletteName {
 		title = "歌单名称"
 		switch p.action {
+		case palBrowseLink:
+			title = "主页 / 电台链接或类型:ID"
 		case palNewMix:
 			title = "混合歌单名称"
 		case palLocalOnly:
@@ -343,7 +375,11 @@ func (m *Model) paletteLines() []string {
 	input := "> " + p.input + "▏"
 	out = append(out, boxLine(input, inner))
 	if p.mode == paletteName {
-		out = append(out, boxLine(st.dim.Render("enter 创建 · esc 返回"), inner))
+		hint := "enter 创建 · esc 返回"
+		if p.action == palBrowseLink {
+			hint = "enter 打开 · esc 返回"
+		}
+		out = append(out, boxLine(st.dim.Render(hint), inner))
 	} else {
 		items := m.filteredPaletteItems()
 		if len(items) == 0 {

@@ -51,6 +51,7 @@ const (
 	syncActRotate    = "rotate"
 	syncActForget    = "forget"
 	syncActAuto      = "auto"
+	syncActAccounts  = "accounts"
 	syncActToken     = "token"
 	syncActArchive   = "archive"
 	syncActTest      = "test"
@@ -101,9 +102,14 @@ func waitSyncCmd(m *syncpkg.Manager) tea.Cmd {
 
 func (m *Model) syncConfigured() bool { return m.syncStatus.Configured }
 
+func (m *Model) syncNeedsInit() bool {
+	return !m.syncConfigured() || m.syncStatus.LastSyncAt.IsZero() ||
+		(m.syncStatus.SyncAccounts && (!m.syncStatus.KeyMatchesRepo || m.syncStatus.KeyIssue != ""))
+}
+
 func (m *Model) syncRows() []syncRow {
 	rows := make([]syncRow, 0, 12)
-	if !m.syncConfigured() || !m.syncStatus.KeyMatchesRepo {
+	if m.syncNeedsInit() {
 		ack := "[ ] 我已知晓：歌单会以明文推送到仓库"
 		if m.syncAck {
 			ack = "[x] 我已知晓：歌单会以明文推送到仓库"
@@ -133,17 +139,24 @@ func (m *Model) syncRows() []syncRow {
 		rows = append(rows, syncRow{action: syncActTest, label: "测试连接", hint: "enter 执行"})
 	}
 	rows = append(rows, syncRow{action: syncActBranch, label: "分支 · " + m.syncStatus.Branch, hint: "enter 编辑"})
-	pass := "未输入"
-	if m.syncPass != "" {
-		pass = "已输入（提交后清除）"
+	accounts := "关闭（默认）"
+	if m.syncStatus.SyncAccounts {
+		accounts = "开启"
 	}
-	rows = append(rows, syncRow{action: syncActPass, label: "同步口令 · " + pass, hint: "enter 输入（至少 12 字符）"})
-	if !m.syncConfigured() || !m.syncStatus.KeyMatchesRepo {
+	rows = append(rows, syncRow{action: syncActAccounts, label: "登录态同步 · " + accounts, hint: "enter 切换"})
+	if m.syncStatus.SyncAccounts {
+		pass := "未输入"
+		if m.syncPass != "" {
+			pass = "已输入（提交后清除）"
+		}
+		rows = append(rows, syncRow{action: syncActPass, label: "同步口令 · " + pass, hint: "enter 输入（至少 12 字符）"})
+	}
+	if m.syncNeedsInit() {
 		hint := "enter 执行"
 		switch {
 		case !m.syncAck:
 			hint = "先按 space 确认明文提示"
-		case m.syncPass == "":
+		case m.syncStatus.SyncAccounts && m.syncPass == "":
 			hint = "先输入同步口令"
 		}
 		rows = append(rows, syncRow{action: syncActInit, label: "初始化 / 加入仓库", hint: hint})
@@ -154,10 +167,10 @@ func (m *Model) syncRows() []syncRow {
 			label: fmt.Sprintf("处理冲突 · %d 项", m.syncStatus.Conflicts), hint: "enter 打开"})
 		rows = append(rows, syncRow{action: syncActDiscard, label: "放弃本轮冲突并重新拉取", hint: "enter 执行"})
 	}
-	if m.syncConfigured() {
+	if m.syncConfigured() && m.syncStatus.SyncAccounts {
 		rows = append(rows, syncRow{action: syncActRotate, label: "更换口令并推送", hint: "enter 执行"})
 	}
-	if m.syncStatus.KeyCached {
+	if m.syncStatus.SyncAccounts && m.syncStatus.KeyCached {
 		rows = append(rows, syncRow{action: syncActForget, label: "忘记本机密钥", hint: "enter 执行"})
 	}
 	auto := "开"
@@ -180,7 +193,7 @@ func (m *Model) renderSync(h int) []string {
 	if m.syncMgr == nil && !status.Configured {
 		add(" " + st.warn.Render("同步不可用：未能初始化同步管理器。"))
 	} else if !status.Configured {
-		add(" " + st.muted.Render("同步尚未配置。填写仓库地址与口令，确认明文提示后初始化。"))
+		add(" " + st.muted.Render("同步尚未配置。填写仓库地址，确认明文提示后初始化；登录态同步默认关闭。"))
 		add(" " + st.dim.Render(truncate("地址可直接填 SSH（git@host:owner/repo.git）或 HTTPS。", max(1, m.width-4))))
 	} else {
 		line := " " + st.muted.Render("状态 ") + st.text.Render(status.Summary())
@@ -204,10 +217,11 @@ func (m *Model) renderSync(h int) []string {
 				keyline = fmt.Sprintf("版本 %d，属于另一个仓库", status.KeyVersion)
 			}
 		}
-		add(fmt.Sprintf(" %s %s · %s %s · %s %s",
-			st.muted.Render("分支"), st.text.Render(status.Branch),
-			st.muted.Render("认证"), st.text.Render(status.Auth),
-			st.muted.Render("密钥"), st.text.Render(keyline)))
+		line = fmt.Sprintf(" %s %s · %s %s", st.muted.Render("分支"), st.text.Render(status.Branch), st.muted.Render("认证"), st.text.Render(status.Auth))
+		if status.SyncAccounts {
+			line += " · " + st.muted.Render("密钥 ") + st.text.Render(keyline)
+		}
+		add(line)
 		if status.AuthHint != "" {
 			add(" " + st.dim.Render(status.AuthHint))
 		}
@@ -218,7 +232,7 @@ func (m *Model) renderSync(h int) []string {
 			st.muted.Render("本机注释"), st.text.Render(fmt.Sprintf("%d 条", m.localAnnotation))))
 		add(" " + st.dim.Render(truncate("仅本机数据不进仓库，其它设备不会看到，也不会被同步删除。", max(1, m.width-4))))
 	}
-	if status.KeyIssue != "" {
+	if status.SyncAccounts && status.KeyIssue != "" {
 		add(" " + st.warn.Render(truncate("密钥："+status.KeyIssue, max(1, m.width-4))))
 	}
 	if status.LastError != "" {
@@ -284,7 +298,7 @@ func (m *Model) renderSync(h int) []string {
 		add("")
 		add(" " + st.warn.Render(truncate("提示："+status.Warnings[0], max(1, m.width-4))))
 	}
-	if status.Configured {
+	if status.Configured && status.SyncAccounts {
 		add("")
 		add(" " + st.dim.Render(truncate("私有仓库只提供访问控制；登录态同步可能被平台风控失效。", max(1, m.width-4))))
 	}
@@ -431,7 +445,7 @@ func (m *Model) runSyncRow(row syncRow) tea.Cmd {
 			m.setNotice("先按 space 确认「歌单会以明文推送」提示", true)
 			return nil
 		}
-		if m.syncPass == "" {
+		if m.syncStatus.SyncAccounts && m.syncPass == "" {
 			m.focusSyncAction(syncActPass)
 			m.setNotice("先输入同步口令（至少 12 个字符）", true)
 			return nil
@@ -476,6 +490,8 @@ func (m *Model) runSyncRow(row syncRow) tea.Cmd {
 		return m.forgetSyncKeyCmd()
 	case syncActAuto:
 		return m.toggleSyncAutoCmd()
+	case syncActAccounts:
+		return m.toggleSyncAccountsCmd()
 	case syncActArchive:
 		path := m.syncMgr.Client().ArchiveDir()
 		if err := openLocalFile(path); err != nil {
@@ -576,7 +592,7 @@ func (m *Model) initSyncCmd() tea.Cmd {
 		m.setNotice("先填写仓库地址", true)
 		return nil
 	}
-	if m.syncPass == "" {
+	if m.syncStatus.SyncAccounts && m.syncPass == "" {
 		m.setNotice("先输入同步口令", true)
 		return nil
 	}
@@ -622,6 +638,16 @@ func (m *Model) toggleSyncAutoCmd() tea.Cmd {
 	return func() tea.Msg {
 		err := mgr.Client().SetAuto(auto)
 		return syncResultMsg{kind: "auto", err: err}
+	}
+}
+
+func (m *Model) toggleSyncAccountsCmd() tea.Cmd {
+	mgr := m.syncMgr
+	enabled := !m.syncStatus.SyncAccounts
+	m.syncPass, m.syncInput = "", ""
+	return func() tea.Msg {
+		err := mgr.Client().SetSyncAccounts(enabled)
+		return syncResultMsg{kind: "accounts", err: err}
 	}
 }
 
@@ -879,7 +905,7 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 		m.setNotice("连接方式已切换；密钥与登录态保持不变", false)
 	case "test":
 		if msg.joined {
-			m.setNotice("连接成功：远端已有同步数据，可输入口令加入", false)
+			m.setNotice("连接成功：远端已有同步数据，可加入仓库", false)
 		} else {
 			m.setNotice("连接成功：远端为空，可初始化", false)
 		}
@@ -894,6 +920,14 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 		m.setNotice("已删除本机同步密钥", false)
 	case "auto":
 		m.setNotice("自动同步开关已更新", false)
+	case "accounts":
+		m.syncStatus = m.syncMgr.Status()
+		m.focusSyncAction(syncActAccounts)
+		if m.syncStatus.SyncAccounts {
+			m.setNotice("已开启登录态同步；无可用密钥时请输入口令并初始化 / 加入", false)
+		} else {
+			m.setNotice("已关闭登录态同步；歌单等数据继续同步", false)
+		}
 	case "rotate":
 		m.setNotice("口令已更换；其他设备需要重新输入", false)
 		if len(msg.result.AccountsApplied) > 0 {

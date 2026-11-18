@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/sheyiyuan/zero-beat-core/app"
@@ -99,6 +100,29 @@ func RenderDemo(name string, width, height int) string {
 	m.demoQuality = "192k"
 
 	switch name {
+	case "profile", "radio":
+		title, desc := "歌手主页 · 示例歌手", "公开作品 · 支持翻页、播放和加入队列"
+		if name == "radio" {
+			title, desc = "播客电台 · 夜间来信", "关于音乐、生活和远方的声音"
+		}
+		m.browse = &browseState{result: source.BrowsePage{Title: title, Description: desc, Page: 1, HasMore: true}}
+		for i, t := range m.searchResults {
+			track := t.Track
+			if name == "radio" {
+				track.Source = source.NetEase
+				track.ExternalID = "program:" + fmt.Sprint(i+1)
+				track.Title = "第 " + fmt.Sprint(i+1) + " 期 · " + track.Title
+			}
+			m.browse.result.Entries = append(m.browse.result.Entries, source.BrowseEntry{Title: track.Title, Subtitle: track.Artist, Track: &track})
+		}
+	case "comments":
+		m.content = &contentPopup{kind: contentComments, song: songs[1], page: 1, hasMore: true,
+			comments: []source.Comment{
+				{ID: "1", Author: "远航的人", Content: "第一次听见这首歌时还在上学。很多年过去，再听前奏，还是会想起那段在夜里赶路的日子。\n愿每个出发的人都能找到自己的方向。", Likes: 128, CreatedAt: time.Unix(1700000000, 0), ReplyCount: 6},
+				{ID: "2", Author: "耳机里的星光", Content: "编曲里的细节很耐听，尤其是鼓点进入之后的那一段。", Likes: 42, CreatedAt: time.Unix(1700000100, 0)},
+			}}
+	case "related":
+		m.content = &contentPopup{kind: contentRelated, song: songs[1], related: m.searchResults}
 	case "search":
 		m.view = viewSearch
 		m.searchMode = searchSource
@@ -166,6 +190,7 @@ func RenderDemo(name string, width, height int) string {
 			Branch:         "main",
 			Auth:           "SSH",
 			Auto:           true,
+			SyncAccounts:   true,
 			KeyCached:      true,
 			KeyMatchesRepo: true,
 			KeyVersion:     1,

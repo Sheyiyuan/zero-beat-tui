@@ -104,6 +104,8 @@ func runSync(args []string) error {
 		return runSyncResolve(args[1:])
 	case "key":
 		return runSyncKey(args[1:])
+	case "accounts":
+		return runSyncAccounts(args[1:])
 	case "archive":
 		return runSyncArchive()
 	default:
@@ -117,17 +119,18 @@ func syncUsage() {
 
 用法:
   zero sync [--backend auto|cli|gogit] <子命令>
-  zero sync init --remote <url> [--branch main] [--auto=false] [--repo <path>]
+  zero sync init --remote <url> [--branch main] [--auto=false] [--sync-accounts] [--repo <path>]
   zero sync status
   zero sync pull | push
   zero sync conflicts
   zero sync resolve <tx> [<entity>] --keep local|remote|both
   zero sync resolve <tx> --all local|remote
   zero sync resolve <tx> --discard
+  zero sync accounts on|off
   zero sync key rotate|set|forget
   zero sync archive
 
-口令从 stdin 读取（终端下不回显），不使用命令行参数。仓库需要自己创建。
+登录态同步默认关闭，不需要口令。开启后口令从 stdin 读取（终端下不回显）。仓库需要自己创建。
 `)
 }
 
@@ -136,6 +139,7 @@ func runSyncInit(args []string) error {
 	remote := fs.String("remote", "", "仓库 URL（HTTPS 或 SSH）")
 	branch := fs.String("branch", "main", "分支名")
 	auto := fs.Bool("auto", true, "自动同步（启动拉取、变更后推送）")
+	accounts := fs.Bool("sync-accounts", false, "启用加密登录态同步（默认关闭）")
 	repo := fs.String("repo", "", "本地仓库路径（测试用，等价于 --remote）")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -156,21 +160,29 @@ func runSyncInit(args []string) error {
 	if err := client.Configure(url, *branch, *auto); err != nil {
 		return err
 	}
-	hasMeta, err := client.Probe(ctx)
+	// 未传开关时保留本机已明确选择的状态；新配置默认为关闭。
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "sync-accounts" {
+			err = client.SetSyncAccounts(*accounts)
+		}
+	})
 	if err != nil {
 		return err
 	}
-	if hasMeta {
+	meta, err := client.ProbeMeta(ctx)
+	if err != nil {
+		return err
+	}
+	if meta != nil {
 		fmt.Fprintln(os.Stderr, "检测到远端已有同步数据，将加入现有仓库。")
 	}
 	var pass string
-	if hasMeta {
-		pass, err = readPassphrase("同步口令: ")
-		if err != nil {
-			return err
+	if client.Status().SyncAccounts {
+		if meta != nil && meta.KeyVersion > 0 {
+			pass, err = readPassphrase("同步口令: ")
+		} else {
+			pass, err = readNewPassphrase()
 		}
-	} else {
-		pass, err = readNewPassphrase()
 		if err != nil {
 			return err
 		}
@@ -225,16 +237,19 @@ func runSyncStatus() error {
 	if status.AuthHint != "" {
 		fmt.Println("认证能力: " + status.AuthHint)
 	}
-	if status.KeyCached {
-		fmt.Printf("本机密钥: 已保存（版本 %d）\n", status.KeyVersion)
-		if !status.KeyMatchesRepo {
-			fmt.Println("密钥状态: 当前密钥属于另一个仓库，请重新初始化/加入")
+	fmt.Printf("登录态同步: %s\n", boolLabel(status.SyncAccounts))
+	if status.SyncAccounts {
+		if status.KeyCached {
+			fmt.Printf("本机密钥: 已保存（版本 %d）\n", status.KeyVersion)
+			if !status.KeyMatchesRepo {
+				fmt.Println("密钥状态: 当前密钥属于另一个仓库，请重新初始化/加入")
+			}
+		} else {
+			fmt.Println("本机密钥: 未保存")
 		}
-	} else {
-		fmt.Println("本机密钥: 未保存")
-	}
-	if status.KeyIssue != "" {
-		fmt.Println("密钥状态: " + status.KeyIssue)
+		if status.KeyIssue != "" {
+			fmt.Println("密钥状态: " + status.KeyIssue)
+		}
 	}
 	if status.LastSyncAt.IsZero() {
 		fmt.Println("上次同步: 从未")
@@ -429,6 +444,53 @@ func runSyncResolve(args []string) error {
 	return nil
 }
 
+func runSyncAccounts(args []string) error {
+	if len(args) != 1 || (args[0] != "on" && args[0] != "off") {
+		return fmt.Errorf("用法: zero sync accounts on|off")
+	}
+	client, st, err := openSync()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	enabled := args[0] == "on"
+	if !enabled {
+		if err := client.SetSyncAccounts(false); err != nil {
+			return err
+		}
+		fmt.Println("已关闭登录态同步；歌单等数据继续同步。")
+		return nil
+	}
+	status := client.Status()
+	if !status.Configured {
+		return syncpkg.ErrNotConfigured
+	}
+	ctx := context.Background()
+	meta, err := client.ProbeMeta(ctx)
+	if err != nil {
+		return err
+	}
+	var pass string
+	if meta != nil && meta.KeyVersion > 0 {
+		pass, err = readPassphrase("同步口令: ")
+	} else {
+		pass, err = readNewPassphrase()
+	}
+	if err != nil {
+		return err
+	}
+	if err := client.SetSyncAccounts(true); err != nil {
+		return err
+	}
+	out, err := client.Init(ctx, status.Remote, status.Branch, status.Auto, pass)
+	if err != nil {
+		return err
+	}
+	fmt.Println("已开启登录态同步。")
+	printSyncResult(out.Synced)
+	return nil
+}
+
 func runSyncKey(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("用法: zero sync key rotate|set|forget")
@@ -440,6 +502,9 @@ func runSyncKey(args []string) error {
 	defer st.Close()
 	switch args[0] {
 	case "rotate", "set":
+		if !client.Status().SyncAccounts {
+			return fmt.Errorf("请先运行 zero sync accounts on 开启登录态同步")
+		}
 		pass, err := readPassphrase("新同步口令: ")
 		if err != nil {
 			return err

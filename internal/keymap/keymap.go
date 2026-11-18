@@ -19,6 +19,10 @@ const (
 	Search           = core.Search
 	QueueView        = core.QueueView
 	LyricsView       = core.LyricsView
+	Comments         = core.Comments
+	Related          = core.Related
+	Profiles         = core.Profiles
+	CommentAuthor    = core.CommentAuthor
 	PlayPause        = core.PlayPause
 	Next             = core.Next
 	Previous         = core.Previous

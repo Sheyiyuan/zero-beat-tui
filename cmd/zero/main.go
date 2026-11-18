@@ -112,7 +112,7 @@ func usage(fs *flag.FlagSet) {
   zero                  启动终端界面
   zero play <链接或 ID>  直接播放（headless，便于验证音频链路）
   zero login [音源]     在终端里扫码登录并保存 cookie（默认第一个音源）
-  zero demo [view]      打印一帧示例界面（library/search/queue/lyrics/lyricbind/help/login/clip/picker/menu/about/downloads/selection/sync/conflicts）
+  zero demo [view]      打印一帧示例界面（library/search/queue/lyrics/lyricbind/comments/related/profile/radio/help/login/clip/picker/menu/about/downloads/selection/sync/conflicts）
   zero download <目标...>  下载单曲（支持 -j 并发、Range 续传）
   zero library <子命令>  本地文件夹歌单：add/list/scan/remove
   zero lyrics <子命令>   歌词来源：show/bind/unbind

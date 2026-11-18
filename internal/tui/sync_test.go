@@ -401,6 +401,9 @@ func TestSyncPageTypeToEdit(t *testing.T) {
 	mgr := testSyncManager(t, "https://example.com/zero.git")
 	defer mgr.Close()
 	m.syncMgr = mgr
+	if err := mgr.Client().SetSyncAccounts(true); err != nil {
+		t.Fatal(err)
+	}
 	m.syncStatus = mgr.Status()
 	m.view = viewSync
 	rows := m.syncRows()
@@ -460,4 +463,91 @@ func TestSyncPassphraseAcceptsNumpadEnter(t *testing.T) {
 	if m.syncPass != "abcdefghijkl" || m.syncEdit != "" {
 		t.Fatalf("小键盘回车也应确认口令，实际 pass=%q edit=%q", m.syncPass, m.syncEdit)
 	}
+}
+
+func TestSyncAccountsToggleAndDataOnlyInit(t *testing.T) {
+	m := fixtureModel()
+	mgr := testSyncManager(t, "https://example.com/zero.git")
+	defer mgr.Close()
+	m.syncMgr, m.syncStatus, m.view = mgr, mgr.Status(), viewSync
+	m.syncStatus.LastSyncAt = time.Now()
+	if m.syncStatus.SyncAccounts {
+		t.Fatal("login sync must default off")
+	}
+	assertRows := func(enabled bool) {
+		t.Helper()
+		found := false
+		for _, row := range m.syncRows() {
+			if row.action == syncActAccounts {
+				found = true
+			}
+			if !enabled && (row.action == syncActPass || row.action == syncActRotate || row.action == syncActForget || row.action == syncActInit) {
+				t.Fatalf("disabled login sync has unnecessary action: %s", row.action)
+			}
+		}
+		if !found {
+			t.Fatal("missing login sync toggle")
+		}
+	}
+	assertRows(false)
+	m.syncPass = "must clear this secret"
+	cmd := m.runSyncRow(syncRow{action: syncActAccounts})
+	if cmd == nil {
+		t.Fatal("toggle must persist config")
+	}
+	msg := cmd().(syncResultMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	m.handleSyncResult(msg)
+	if !mgr.Status().SyncAccounts || !m.syncStatus.SyncAccounts || m.syncPass != "" {
+		t.Fatal("enable must persist and clear passphrase")
+	}
+	foundPass := false
+	for _, row := range m.syncRows() {
+		if row.action == syncActPass {
+			foundPass = true
+		}
+	}
+	if !foundPass {
+		t.Fatal("enabled login sync needs a passphrase entry")
+	}
+	m.syncAck = true
+	if cmd := m.runSyncRow(syncRow{action: syncActInit}); cmd != nil {
+		t.Fatal("enabled login sync must require a passphrase")
+	}
+	cmd = m.runSyncRow(syncRow{action: syncActAccounts})
+	msg = cmd().(syncResultMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	m.handleSyncResult(msg)
+	m.syncStatus.LastSyncAt = time.Now()
+	assertRows(false)
+	m.syncStatus.LastSyncAt = time.Time{}
+	m.syncPass = ""
+	if cmd := m.runSyncRow(syncRow{action: syncActInit}); cmd == nil {
+		t.Fatal("data-only initialization must not ask for a passphrase")
+	}
+	// Do not execute the network command; this test verifies the actual UI prerequisites.
+}
+
+func TestRenderSyncDisabledHasNoKeyWarning(t *testing.T) {
+	m := fixtureModel()
+	mgr := testSyncManager(t, "https://example.com/zero.git")
+	defer mgr.Close()
+	m.syncMgr, m.syncStatus, m.view = mgr, mgr.Status(), viewSync
+	m.syncStatus.LastSyncAt = time.Now()
+	m.syncStatus.KeyIssue = "需要输入同步口令" // A late/stale status must not force key UI when off.
+	body := ansi.Strip(m.View().Content)
+	if !strings.Contains(body, "登录态同步 · 关闭") || !strings.Contains(body, "成功") {
+		t.Fatalf("missing disabled state: %s", body)
+	}
+	for _, unwanted := range []string{"密钥不可用", "密钥：", "同步口令 ·", "更换口令"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("unwanted %q in disabled UI", unwanted)
+		}
+	}
+	m.width, m.height = 40, 12
+	assertFrame(t, m.View().Content, 40, 12)
 }

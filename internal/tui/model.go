@@ -23,7 +23,7 @@ import (
 	"github.com/sheyiyuan/zero-beat-tui/internal/audio"
 	"github.com/sheyiyuan/zero-beat-tui/internal/control"
 	"github.com/sheyiyuan/zero-beat-tui/internal/keymap"
-	"github.com/sheyiyuan/zero-beat-tui/internal/sysmedia"
+	"github.com/sheyiyuan/zero-beat-core/sysmedia"
 )
 
 type view int
@@ -310,6 +310,11 @@ type Model struct {
 	helpPopup       bool
 	helpPopupOffset int
 	aboutPopup      bool
+	// content 是评论区/相关推荐浮层；请求带代号，迟到响应不会覆盖新歌曲。
+	content         *contentPopup
+	contentRequest  int
+	browse          *browseState
+	browseRequest   int
 	menu            *menuState
 	lastClickAt     time.Time
 	lastClickX      int
@@ -506,6 +511,12 @@ func (m *Model) startSysmedia() bool {
 
 // Update 处理消息。
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, handled := m.handleBrowseMsg(msg); handled {
+		return m, cmd
+	}
+	if cmd, handled := m.handleContentMsg(msg); handled {
+		return m, cmd
+	}
 	// 歌词来源浮层的异步结果先归它，其余消息继续走常规分支。
 	if cmd, handled := m.handleLyricBindMsg(msg); handled {
 		return m, cmd
@@ -1172,6 +1183,12 @@ func (m *Model) handleKey(key tea.Key) (tea.Model, tea.Cmd) {
 	if m.menu != nil {
 		return m.handleMenuKey(key)
 	}
+	if m.content != nil {
+		return m.handleContentKey(key)
+	}
+	if m.browse != nil {
+		return m.handleBrowseKey(key)
+	}
 	if m.palette != nil {
 		return m.handlePaletteKey(key)
 	}
@@ -1265,6 +1282,12 @@ func (m *Model) handleKey(key tea.Key) (tea.Model, tea.Cmd) {
 	case m.match(keymap.LyricsView, key):
 		m.view = viewLyrics
 		return m, m.onViewChanged()
+	case m.match(keymap.Comments, key):
+		return m, m.openSelectedContent(contentComments)
+	case m.match(keymap.Profiles, key):
+		return m, m.openCurrentProfiles()
+	case m.match(keymap.Related, key):
+		return m, m.openSelectedContent(contentRelated)
 	case m.match(keymap.Downloads, key):
 		return m, m.openDownloads()
 	case m.match(keymap.LocalSearch, key):
@@ -1320,6 +1343,11 @@ func (m *Model) handleKey(key tea.Key) (tea.Model, tea.Cmd) {
 			break
 		}
 		return m, m.openClipEditor()
+	case m.match(keymap.New, key):
+		// N 始终打开命令面板（新建本地/混合歌单、同步、解锁、关于），
+		// 不随焦点改变行为；歌单栏右键也走同一个面板。
+		m.openPalette()
+		return m, nil
 	case m.match(keymap.AddPlaylist, key):
 		if m.view == viewLibrary && m.libraryFocus == focusSongs {
 			if songs := m.selectedSongs(); len(songs) > 0 {
@@ -1633,11 +1661,7 @@ func (m *Model) handleLibraryKey(key tea.Key) (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.match(keymap.Folders, key):
 		return m, m.openFolders(m.defaultFolderSource())
-	case m.match(keymap.New, key):
-		// N 始终打开命令面板（新建本地/混合歌单、同步、解锁、关于），
-		// 不随焦点改变行为；歌单栏右键也走同一个面板。
-		m.openPalette()
-		return m, nil
+
 	case m.match(keymap.MixEdit, key):
 		if m.libraryFocus == focusSongs {
 			return m, m.needPlaylistFocus()
@@ -3580,6 +3604,8 @@ func (m *Model) loginAppName(id source.ID) string {
 }
 
 func (m *Model) shutdown() {
+	m.closeBrowse()
+	m.closeContent()
 	m.cancelDownloads()
 	m.persistQueue()
 	if m.syncMgr != nil {

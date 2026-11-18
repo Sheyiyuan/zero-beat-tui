@@ -113,7 +113,7 @@ func (m *Model) controlSnapshot() controlState {
 // 例如 +type q 会直接退出，绕过 deniedControl。
 func (m *Model) textInputFocused() bool {
 	switch {
-	case m.menu != nil:
+	case m.menu != nil, m.content != nil, m.browse != nil:
 		return false
 	case m.palette != nil:
 		return true

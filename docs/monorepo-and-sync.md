@@ -4,7 +4,7 @@
 
 ## 当前结构
 
-现有 zero-beat Git 仓库是唯一代码主线，仓库根目录（含 `go.work`）就是 monorepo 根。仓库内包括：
+zero-beat 是集成与发布仓库，根目录管理 `go.work`、CI 与应用发布。core、TUI、GUI 是独立仓库，通过 Git 子模块固定版本；网站由主仓库直接管理。仓库内包括：
 
 | 目录 | 职责 |
 | --- | --- |
@@ -13,22 +13,24 @@
 | zero-beat-gui | 导入的 GUI 设计文档，未来 Flutter 与 RPC 入口 |
 | zero-beat-site | VitePress 网站包、站点配置和文档生成脚本 |
 
-两个 Go module 都使用 `github.com/sheyiyuan/zero-beat/<目录名>`。根 `go.work` 用于本地联调。GUI 目前没有 Go module；实现入口后再加入工作区。原 GUI 仓库保留历史，导入来源见 [IMPORT](../zero-beat-gui/IMPORT.md)。
+两个 Go module 分别为 `github.com/sheyiyuan/zero-beat-core` 和 `github.com/sheyiyuan/zero-beat-tui`。根 `go.work` 用于本地联调。GUI 目前没有 Go module；实现入口后再加入工作区。集成结构以主仓库的[模块迁移文档](https://github.com/Sheyiyuan/zero-beat/blob/main/docs/monorepo-and-sync.md)为准。
 
 core 不依赖 TUI、Bubble Tea、oto 或 DBus。完整 Session 门面和 Android 下载适配尚未实现；本轮保持原业务接口和桌面下载行为。GUI 将独立打包，Dart 包标识使用 zero_beat_gui。
 
-迁移清单：原 `internal/{app,bili,config,cover,download,downloader,instance,library,lrclib,lyrics,netease,player,source,store,sync}` 移到 core 的公开包；纯媒体类型归 core/media，键位解析与校验归 core/keymap。原 `cmd/zero`、`internal/{audio,control,desktop,sysmedia,tui}` 与嵌入图标包归 TUI；TUI/internal/keymap 只适配 Bubble Tea 按键。原 `site/` 整体迁到 zero-beat-site，根 docs/assets 仍是网站内容来源。
+迁移清单：原 `internal/{app,bili,config,cover,download,downloader,instance,library,lrclib,lyrics,netease,player,source,store,sync}` 移到 core 的公开包；纯媒体类型归 core/media，键位解析与校验归 core/keymap。原 `cmd/zero`、`internal/{audio,control,desktop,sysmedia,tui}` 与嵌入图标包归 TUI；TUI/internal/keymap 只适配 Bubble Tea 按键。网站位于主仓库 zero-beat-site，用户文档从 TUI/GUI 子模块生成，主仓库 assets 提供品牌素材。
 
 ## 构建与发布
 
+**v0.8.0 未发布，等待 GUI 完成并通过联合验收后统一发布。** 当前改动归入 [0.8.0 更新说明](release-notes-v0.8.0.md)，本地构建版本标识不代表正式发版。以下命令和标签顺序供届时使用。
+
 - 所有命令统一从仓库根目录执行：`make help` 查看入口，`make check` 检查两个模块与文档，`make build` 输出 bin/zero。
 - `make verify` 汇总本地验收：`check`、独立模块消费、四平台 core 依赖检查、站点构建；真实设备与托管 Git 服务仍需单独验证。
-- 站点统一用 `make site-install` / `make site-build` 构建（内部调用 `pnpm`），不再要求进入 `zero-beat-site` 手动执行；用户文档来源仍为根 `docs/`，网址保持不变。
-- `make tidy` 使用临时模块代理整理依赖；不在 go.mod 提交兄弟模块相对路径 replace。core/v0.8.0 打 tag 前，go.work 用版本精确的 `replace` 指向本地 core，tag 后移除。
+- 站点统一用 `make site-install` / `make site-build` 构建（内部调用 `pnpm`）；TUI 文档来源为 `zero-beat-tui/docs/`，GUI 设计来源为 `zero-beat-gui/`，TUI 原网址保持不变，GUI 使用 `/gui/`。生成页面不提交。
+- `make tidy` 使用临时模块代理整理依赖；不在 go.mod 提交兄弟模块相对路径 replace。本地联调由 go.work 指向检出的 core，固定模块版本用于独立消费。
 - `make check-modules` 在临时消费目录、GOWORK=off 下运行 test/vet/build。
 - `python3 scripts/check-core-deps.py` 检查 Linux、macOS、Windows、Android 的核心依赖和编译；这不是 GUI 平台功能验收。
 - 网易云依赖的第三方 replace 必须出现在每个消费模块，不能仅依赖 core 的 replace。
-- 首次模块版本配套使用 v0.8.0。先发布 `zero-beat-core/v0.8.0`，再发布 `zero-beat-tui/v0.8.0`；`v0.8.0` 触发现有应用发布流水线。后续版本同样先 core 后 TUI，最后应用标签。
+- 首次模块版本配套使用 v0.8.0。待 GUI 完成后，在 core 仓库发布 `v0.8.0`，再在 TUI 仓库发布 `v0.8.0`；最后更新主仓库子模块指针并发布应用 `v0.8.0`。组件仓库根模块的标签不带目录前缀。后续版本同样先 core 后 TUI，最后应用标签。
 - 保持 zero 命令、zero_<version>_<os>_<arch> 安装资产和 releases/latest 入口。未来 GUI 发布须设为非 latest，不抢占 TUI 安装入口。
 - 源码安装路径改为 `github.com/sheyiyuan/zero-beat-tui/cmd/zero@版本`；旧根模块路径仅对应历史版本。
 - 当前检出没有 .aur 目录；外部 AUR 源码包维护者需更新构建工作目录，二进制包继续使用原资产名。
@@ -39,6 +41,7 @@ core 不依赖 TUI、Bubble Tea、oto 或 DBus。完整 Session 门面和 Androi
 remote = "https://github.com/example/music-sync.git"
 branch = "main"
 auto = true
+sync_accounts = false # 登录态同步默认关闭，每台设备单独启用
 backend = "auto"
 # go-git SSH 可选项；加密私钥请通过 SSH agent 解锁。
 # ssh_key = "/home/me/.ssh/id_ed25519"
@@ -51,7 +54,7 @@ HTTPS token 继续使用 sync-token 文件。CLI 保留 credential helper 与 GI
 
 ## 数据与恢复
 
-远端仍使用 v2 快照格式，字段和时间单位不变。合并输入是固定提交的 base/local/remote，而非 Git index stages。同一实体双方不同修改需要选择；不同实体自动合并，删除与空文件不同。账号沿用 LWW，分叉成功生成两个父提交；无共同祖先的非空历史和多个最佳共同祖先明确拒绝。
+歌单和注释仍沿用 v2 快照字段与时间单位；新仓库元数据为 `meta.v=3`，支持无口令初始化，已有 v2 加密仓库普通同步时保留 v2。登录态仅在本机启用后参与同步，详见[同步指南](guide/sync.md)。合并输入是固定提交的 base/local/remote，而非 Git index stages。同一实体双方不同修改需要选择；不同实体自动合并，删除与空文件不同。账号沿用 LWW，分叉成功生成两个父提交；无共同祖先的非空历史和多个最佳共同祖先明确拒绝。
 
 受管文件在导入、覆盖导出前严格校验；未知字段和版本会停止写同步。所有同步仓库修改先持进程间锁。冲突记录固定提交和本地数据摘要；恢复时重新 fetch，输入改变后归档旧事务并重新计算，旧选择不会应用到新冲突。旧版冲突仍可查看或归档，但不能直接提交。
 

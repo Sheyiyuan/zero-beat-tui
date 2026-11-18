@@ -49,6 +49,9 @@ const (
 	actFolderAdd
 	actSelectToggle
 	actClearSelection
+	actComments
+	actRelated
+	actProfiles
 )
 
 type menuItem struct {
@@ -299,6 +302,12 @@ func (m *Model) runMenuAction(menu menuState, item menuItem) (tea.Model, tea.Cmd
 		m.clearSelection()
 		m.setNotice("已取消选择", false)
 		return m, nil
+	case actComments:
+		return m, m.openComments(menu.song)
+	case actProfiles:
+		return m, m.openProfiles(menu.song)
+	case actRelated:
+		return m, m.openRelated(menu.song)
 	case actPlaylistPlay:
 		return m, m.playPlaylistFromMenu(menu.playlistIdx)
 	case actPlaylistRefresh:

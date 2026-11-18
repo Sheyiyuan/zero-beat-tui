@@ -219,6 +219,14 @@ func (m *Model) handleMouseWheel(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 	}
 	// 帮助弹窗在最上层；它属于 hardModal，必须在这里先接管，
 	// 否则滚轮会被下面的「弹层不响应鼠标」直接吞掉。
+	if m.content != nil {
+		m.scrollContent(dir * 3)
+		return m, nil
+	}
+	if m.browse != nil {
+		m.scrollBrowse(dir * 3)
+		return m, nil
+	}
 	if m.helpPopup {
 		m.scrollHelp(dir * 3)
 		return m, nil
@@ -274,6 +282,7 @@ func (m *Model) hardModal() bool {
 		m.picker != nil ||
 		m.helpPopup ||
 		m.aboutPopup ||
+		m.content != nil || m.browse != nil ||
 		m.view == viewLogin && m.menu == nil
 }
 
@@ -291,6 +300,31 @@ func (m *Model) handleOverlayClick(mouse tea.Mouse) (bool, tea.Cmd) {
 	var lines []string
 	var cancel func() tea.Cmd
 	switch {
+	case m.content != nil:
+		lines = m.contentLines()
+		left, top, w, _, ok := overlayBoxBounds(lines, m.width, m.height)
+		if ok && m.content.kind == contentRelated && mouse.Button == tea.MouseLeft &&
+			mouse.X > left && mouse.X < left+w-1 && mouse.Y >= top+2 && mouse.Y < top+2+m.contentBodyHeight() {
+			start := max(0, m.content.cursor-m.contentBodyHeight()+1)
+			idx := start + mouse.Y - top - 2
+			if idx < len(m.content.related) {
+				m.content.cursor = idx
+			}
+			return true, nil
+		}
+		cancel = func() tea.Cmd { m.closeContent(); return nil }
+	case m.browse != nil:
+		lines = m.browseLines()
+		left, top, w, _, ok := overlayBoxBounds(lines, m.width, m.height)
+		if ok && mouse.Button == tea.MouseLeft && mouse.X > left && mouse.X < left+w-1 && mouse.Y >= top+3 && mouse.Y < top+3+m.browseBodyHeight() {
+			start := max(0, m.browse.cursor-m.browseBodyHeight()+1)
+			idx := start + mouse.Y - top - 3
+			if idx < len(m.browse.result.Entries) {
+				m.browse.cursor = idx
+			}
+			return true, nil
+		}
+		cancel = func() tea.Cmd { m.closeBrowse(); return nil }
 	case m.lyricBind != nil:
 		lines, cancel = m.lyricBindLines(), func() tea.Cmd {
 			m.lyricBind = nil
