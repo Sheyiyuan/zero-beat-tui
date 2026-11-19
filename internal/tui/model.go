@@ -20,10 +20,10 @@ import (
 	"github.com/sheyiyuan/zero-beat-core/source"
 	"github.com/sheyiyuan/zero-beat-core/store"
 	syncpkg "github.com/sheyiyuan/zero-beat-core/sync"
+	"github.com/sheyiyuan/zero-beat-core/sysmedia"
 	"github.com/sheyiyuan/zero-beat-tui/internal/audio"
 	"github.com/sheyiyuan/zero-beat-tui/internal/control"
 	"github.com/sheyiyuan/zero-beat-tui/internal/keymap"
-	"github.com/sheyiyuan/zero-beat-core/sysmedia"
 )
 
 type view int
@@ -2436,6 +2436,11 @@ func (m *Model) applySysCommand(cmd sysmedia.Command) tea.Cmd {
 		if next, ok := modeForLoop(cmd.Loop); ok {
 			m.setMode(next)
 		}
+	case sysmedia.CommandRestart:
+		// 只回到 0；seekTo 会沿用当前播放/暂停状态。
+		return m.seekTo(0)
+	case sysmedia.CommandCycleMode:
+		m.setMode(m.mode.Next())
 	}
 	return nil
 }

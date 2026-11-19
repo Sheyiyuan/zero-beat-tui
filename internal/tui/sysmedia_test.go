@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/sheyiyuan/zero-beat-core/store"
-	"github.com/sheyiyuan/zero-beat-tui/internal/audio"
 	"github.com/sheyiyuan/zero-beat-core/sysmedia"
+	"github.com/sheyiyuan/zero-beat-tui/internal/audio"
 )
 
 type fakeSysmedia struct {
@@ -123,6 +123,16 @@ func TestApplySysCommandMapsOrderProperties(t *testing.T) {
 				t.Fatalf("模式 = %v，期望 %v", m.mode, tc.want)
 			}
 		})
+	}
+}
+
+func TestApplySysCommandCyclesMode(t *testing.T) {
+	m := &Model{mode: modeListLoop, queue: []store.Song{{ID: "a"}, {ID: "b"}}}
+	for _, want := range []playMode{modeLoopOne, modeShuffle, modeOrdered, modeListLoop} {
+		_ = m.applySysCommand(sysmedia.Command{Kind: sysmedia.CommandCycleMode})
+		if m.mode != want {
+			t.Fatalf("模式 = %v，期望 %v", m.mode, want)
+		}
 	}
 }
 
